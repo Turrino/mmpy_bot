@@ -21,12 +21,13 @@ BOT_EMOJI = settings.BOT_EMOJI if hasattr(settings, 'BOT_EMOJI') else None
 
 
 class MessageDispatcher(object):
-    def __init__(self, client, plugins):
+    def __init__(self, client, plugins, readonly_channels=None):
         self._client = client
         self._pool = WorkerPool(self.dispatch_msg, settings.WORKERS_NUM)
         self._plugins = plugins
         self._channel_info = {}
         self.event = None
+        self.readonly_channels = readonly_channels
 
     def start(self):
         self._pool.start()
@@ -73,6 +74,15 @@ class MessageDispatcher(object):
                          bot [added to/leave] [team/channel].')
             return False
 
+    def handle_readonly(self, msg):
+        msg_handler = Message(self._client, msg, self._pool)
+        sender = msg_handler._get_sender_name()
+        channel_id = msg['data']['post']['channel_id']
+        allowed_users = self.readonly_channels['channels'][channel_id]
+        if sender not in allowed_users:
+                msg_handler.remove_post()
+                msg_handler.reply_private(sender, self.readonly_channels['message'])
+
     def dispatch_msg(self, msg):
         category = msg[0]
         msg = msg[1]
@@ -81,6 +91,10 @@ class MessageDispatcher(object):
         msg['message_type'] = '?'
         if self.is_personal(msg):
             msg['message_type'] = 'D'
+
+        if category == 'readonly':
+            self.handle_readonly(msg)
+            return
 
         for func, args in self._plugins.get_plugins(category, text):
             if func:
@@ -102,15 +116,25 @@ class MessageDispatcher(object):
                     return getattr(mod, 'default_reply')(self, msg)
             self._default_reply(msg)
 
+    def is_readonly_channel(self, msg):
+        if not self.readonly_channels:
+            return
+        channel_id = msg['data']['post']['channel_id']
+        return channel_id in self.readonly_channels['channels']
+
     def _on_new_message(self, msg):
         if self.ignore(msg) is True:
             return
-
-        msg = self.filter_text(msg)
-        if self.is_mentioned(msg) or self.is_personal(msg):
-            self._pool.add_task(('respond_to', msg))
-        else:
-            self._pool.add_task(('listen_to', msg))
+        
+        if self.is_readonly_channel(msg):
+            self._pool.add_task(('readonly', msg))
+            
+        else: # only run filters and plugins outside of readonly channels
+            msg = self.filter_text(msg)
+            if self.is_mentioned(msg) or self.is_personal(msg):
+                self._pool.add_task(('respond_to', msg))
+            else:
+                self._pool.add_task(('listen_to', msg))
 
     def filter_text(self, msg):
         text = self.get_message(msg)
@@ -196,6 +220,9 @@ class Message(object):
     def get_user_id(self, user_id=None):
         return self.get_user_info('id', user_id)
 
+    def get_user_id_by_name(self, username):
+        return self._client.api.get_user_by_name(username)['id']
+		
     def get_channel_name(self, channel_id=None):
         channel_id = channel_id or self.channel
         if channel_id in self.channels:
@@ -276,6 +303,11 @@ class Message(object):
         self.send(self._gen_reply(text), files=files, props=props or {},
                   pid=(self._body['data']['post']['root_id'] or
                        self._body['data']['post']['id']))
+    
+    def reply_private(self, username, message):
+        user_id = self.get_user_id_by_name(username)
+        private_channel = self._client.create_private_channel(user_id, message)
+        self._client.channel_msg(private_channel['id'], message)
 
     def comment(self, message):
         self.reply_thread(message)
@@ -284,6 +316,10 @@ class Message(object):
         return self._client.channel_msg(
             channel_id or self.channel, text,
             files=files, pid=pid, props=props or {})
+
+    def invite(self, username, channel_id):
+        user_id = self.get_user_id_by_name(username)
+        return self._client.invite_user(user_id, channel_id)
 
     def update(self, text, message_id, channel_id=None):
         return self._client.update_msg(
@@ -298,6 +334,9 @@ class Message(object):
     def remove_reaction(self, emoji_name):
         self._client.remove_reaction(
             self._body['data']['post']['id'], emoji_name)
+
+    def remove_post(self):
+        self._client.remove_post(self._body['data']['post']['id'])
 
     def docs_reply(self, docs_format='    • `{0}` {1}'):
         reply = [docs_format.format(v.__name__, v.__doc__ or "")

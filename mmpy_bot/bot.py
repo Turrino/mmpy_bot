@@ -12,10 +12,10 @@ from glob import glob
 
 from six.moves import _thread
 
-from mmpy_bot import settings
-from mmpy_bot.dispatcher import MessageDispatcher
-from mmpy_bot.mattermost import MattermostClient
-from mmpy_bot.scheduler import schedule
+import settings
+from dispatcher import MessageDispatcher
+from mattermost import MattermostClient
+from scheduler import schedule
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,12 @@ class Bot(object):
         self._client = MattermostClient(
             settings.BOT_URL, settings.BOT_TEAM,
             settings.BOT_LOGIN, settings.BOT_PASSWORD,
+            settings.BOT_NAME,
             settings.SSL_VERIFY, settings.BOT_TOKEN,
             settings.WS_ORIGIN)
         logger.info('connected to mattermost')
         self._plugins = PluginsManager()
-        self._dispatcher = MessageDispatcher(self._client, self._plugins)
+        self._dispatcher = MessageDispatcher(self._client, self._plugins, settings.READONLY_CHANNELS)
 
     def run(self):
         self._plugins.init_plugins()

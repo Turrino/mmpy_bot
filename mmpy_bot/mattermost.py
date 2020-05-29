@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MattermostAPI(object):
-    def __init__(self, url, ssl_verify, token):
+    def __init__(self, url, ssl_verify, token, bot_name):
         self.url = url
         self.token = token
         self.initial = None
@@ -20,6 +20,8 @@ class MattermostAPI(object):
         if not ssl_verify:
             requests.packages.urllib3.disable_warnings(
                 requests.packages.urllib3.exceptions.InsecureRequestWarning)
+        self.bot_name = bot_name
+        self.bot_id = None
 
     def _get_headers(self):
         return {"Authorization": "Bearer " + self.token}
@@ -42,6 +44,9 @@ class MattermostAPI(object):
             '/users/{0}/posts/{1}/reactions/{2}'.format(
                 user_id, post_id, emoji_name))
 
+    def delete_post(self, post_id):
+        return self.delete('/posts/{0}'.format(post_id))
+
     def create_post(self, user_id, channel_id, message,
                     files=None, pid="", props=None):
         return self.post(
@@ -52,6 +57,18 @@ class MattermostAPI(object):
                 'file_ids': files or [],
                 'root_id': pid,
                 'props': props or {}
+            })
+
+    def create_private_channel(self, user_id, message):
+        if not self.bot_id:
+            self.bot_id = self.get_user_by_name(self.bot_name)['id']
+        return self.post('/channels/direct',
+            [ self.bot_id, user_id ])
+
+    def add_user_to_channel(self, user_id, channel_id):
+        return self.post('/channels/{0}/members'.format(channel_id),
+            {
+                'user_id': user_id
             })
 
     @staticmethod
@@ -91,6 +108,9 @@ class MattermostAPI(object):
 
     def get_user_info(self, user_id):
         return self.get('/users/{}'.format(user_id))
+
+    def get_user_by_name(self, username):
+        return self.get('/users/username/{}'.format(username))
 
     def hooks_create(self, **kwargs):
         return self.post(
@@ -212,12 +232,12 @@ class MattermostAPI(object):
 
 
 class MattermostClient(object):
-    def __init__(self, url, team, email, password, ssl_verify=True,
+    def __init__(self, url, team, email, password, bot_name, ssl_verify=True,
                  token=None, ws_origin=None):
         self.users = {}
         self.channels = {}
         self.mentions = {}
-        self.api = MattermostAPI(url, ssl_verify, token)
+        self.api = MattermostAPI(url, ssl_verify, token, bot_name)
         self.user = None
         self.websocket = None
         self.email = None
@@ -244,11 +264,20 @@ class MattermostClient(object):
         return self.api.delete_reaction(self.user["id"],
                                         post_id, emoji_name)
 
+    def remove_post(self, post_id):
+        return self.api.delete_post(post_id)
+
     def channel_msg(self, channel, message, files=None, pid="", props=None):
         c_id = self.channels.get(channel, {}).get("id") or channel
         return self.api.create_post(self.user["id"], c_id,
                                     "{}".format(message), files, pid,
                                     props=props or {})
+
+    def create_private_channel(self, user_id, message):
+        return self.api.create_private_channel(user_id, message)
+
+    def invite_user(self, user_id, channel_id):
+        return self.api.add_user_to_channel(user_id, channel_id)
 
     def update_msg(self, message_id, channel, message, pid=""):
         c_id = self.channels.get(channel, {}).get("id") or channel
