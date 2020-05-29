@@ -12,22 +12,24 @@ Documentation available at [Read the Docs](http://mmpy_bot.readthedocs.org/).
 Adds a couple features:
 1. Plugins can be used to invite a user to a channel, e.g.:
 
+```
 @listen_to('invite me', re.IGNORECASE)
 def invite_that_user(message):
 	message.invite_sender('channel id goes here')
-	
+```
+
 2. "Readonly" channels can be created.
 The bot will delete any message from unauthorised users and send them a custom private message.
 Specific users can be added to the whitelist.
 The configuration should be set in mmpy_bot_settings.py, as such:
-
+```
 READONLY_CHANNELS = {
     'message': 'This is a read-only channel and your message has been deleted. Please see the channel header for more info.',
     'channels': {
         'ic7teyjd13fztc6pejfzhyporc': ['allowed_username']
         }
     }
-
+```
 Where ic7teyjd13fztc6pejfzhyporc is the channel id, and allowed_username is the name (no @) of the users that are allowed to post.
 The bot will not try to run plugins in the readonly channels.
 
