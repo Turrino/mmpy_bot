@@ -321,6 +321,9 @@ class Message(object):
         user_id = self.get_user_id_by_name(username)
         return self._client.invite_user(user_id, channel_id)
 
+    def invite_sender(self, channel_id):
+        return self._client.invite_user(self, self.get_user_id(), channel_id)
+
     def update(self, text, message_id, channel_id=None):
         return self._client.update_msg(
             message_id, channel_id or self.channel,
